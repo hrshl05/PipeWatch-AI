@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0b1220" />
+  <meta name="description" content="PipeWatch AI helps communities report, map and review suspected underground water pipeline leakage using photos and location-based reports." />
+  <title>PipeWatch AI | Underground Pipeline Leakage Detection</title>
+  <script defer src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap');
+    :root { color-scheme: light; }
+    * { box-sizing:border-box; }
+    body { font-family:'DM Sans',sans-serif; background:#f4f7fb; overflow-x:hidden; }
+    h1,h2,h3,.brand { font-family:'Space Grotesk',sans-serif; }
+    .hidden-view { display:none !important; }
+    .nav-item.active { background:linear-gradient(100deg,#172554,#1e3a8a); color:white; box-shadow:0 8px 20px #1e3a8a22; }
+    .nav-item.active i { color:#7dd3fc; }
+    .glass { background:rgba(255,255,255,.86); backdrop-filter:blur(16px); }
+    .mapbox { height:390px; min-height:300px; }
+    #map-full { height:calc(100vh - 230px); min-height:420px; }
+    .leaflet-container { z-index:1; font-family:'DM Sans',sans-serif; background:#e9eff5; }
+    .leaflet-control-attribution { font-size:9px !important; }
+    .auth-bg { background:radial-gradient(circle at 15% 20%,#1d4ed8 0,transparent 30%),radial-gradient(circle at 85% 75%,#0f766e 0,transparent 28%),linear-gradient(135deg,#07111f,#101d35 55%,#0b2434); }
+    .fade-in { animation:fade .25s ease-out; }
+    @keyframes fade { from { opacity:0; transform:translateY(8px) } to { opacity:1; transform:translateY(0) } }
+    .dot-grid { background-image:radial-gradient(#94a3b8 1px,transparent 1px); background-size:18px 18px; }
+    @media(max-width:1023px) {
+      #sidebar { position:fixed; inset:0 auto 0 0; width:270px; height:100dvh; min-height:100dvh; transform:translateX(-110%); transition:transform .22s; z-index:50; overflow-y:auto; }
+      #sidebar.open { transform:translateX(0); }
+      #shade.show { display:block; }
+      #map-full { height:60vh; min-height:360px; }
+    }
+    @media(min-width:1024px) {
+      #app-screen { display:flex; align-items:stretch; }
+      #sidebar { position:sticky; top:0; height:100vh; }
+    }
+  </style>
+</head>
+<body class="min-h-screen text-slate-800">
+
+  <!-- AUTH VIEW -->
+  <main id="auth-screen" class="auth-bg min-h-screen flex items-center justify-center p-4">
+    <div class="w-full max-w-5xl grid lg:grid-cols-2 overflow-hidden rounded-[28px] bg-white shadow-2xl fade-in">
+      <section class="hidden lg:flex flex-col justify-between p-12 text-white relative overflow-hidden">
+        <div class="absolute inset-0 dot-grid opacity-10"></div>
+        <div class="relative">
+          <div class="flex items-center gap-3">
+            <div class="w-11 h-11 rounded-2xl bg-sky-400/20 border border-sky-200/20 flex items-center justify-center"><i class="fa-solid fa-droplet text-sky-300 text-xl"></i></div>
+            <div class="brand text-2xl font-bold">PipeWatch<span class="text-sky-300"> AI.</span></div>
+          </div>
+          <div class="mt-20">
+            <p class="text-sky-300 text-xs font-bold uppercase tracking-[.25em]">Underground pipeline leakage detection platform</p>
+            <h1 class="text-5xl font-bold leading-tight mt-4">Protect water networks<br/>with <span class="text-sky-300">one report.</span></h1>
+            <p class="text-slate-300 mt-6 max-w-sm leading-7">Report suspected underground water leakage, review evidence, and explore reported locations from one simple dashboard.</p>
+          </div>
+        </div>
+        <div class="relative flex gap-8 text-sm text-slate-300">
+          <span><i class="fa-solid fa-location-dot text-sky-300 mr-2"></i>Location mapped</span>
+          <span><i class="fa-solid fa-cloud text-sky-300 mr-2"></i>Cloud synced</span>
+        </div>
+      </section>
+      <section class="p-7 sm:p-10 lg:p-12">
+        <div class="lg:hidden flex items-center gap-3 mb-8"><div class="w-10 h-10 rounded-xl bg-sky-100 text-sky-700 flex items-center justify-center"><i class="fa-solid fa-droplet"></i></div><div class="brand text-xl font-bold">PipeWatch AI.</div></div>
+        <div class="flex gap-2 p-1 rounded-xl bg-slate-100 mb-8">
+          <button id="tab-login" class="flex-1 py-2.5 rounded-lg text-sm font-bold bg-white shadow-sm text-slate-900" type="button">Sign in</button>
+          <button id="tab-register" class="flex-1 py-2.5 rounded-lg text-sm font-bold text-slate-500" type="button">Create account</button>
+        </div>
+        <div id="login-panel">
+          <p class="text-xs font-bold tracking-[.2em] text-sky-700 uppercase">Welcome back</p>
+          <h2 class="text-3xl font-bold mt-2">Sign in to your account</h2>
+          <p class="text-slate-500 text-sm mt-2">Use the email ID and password you registered with.</p>
+          <form id="login-form" class="mt-8 space-y-4">
+            <div><label class="text-sm font-semibold block mb-2" for="login-email">Email / Login ID</label><div class="relative"><i class="fa-regular fa-envelope absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"></i><input id="login-email" type="email" autocomplete="username" required class="w-full rounded-xl border border-slate-200 bg-slate-50 py-3.5 pl-11 pr-4 outline-none focus:ring-2 focus:ring-sky-400" placeholder="you@example.com"/></div></div>
+            <div><label class="text-sm font-semibold block mb-2" for="login-password">Password</label><div class="relative"><i class="fa-solid fa-lock absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"></i><input id="login-password" type="password" autocomplete="current-password" required minlength="6" class="w-full rounded-xl border border-slate-200 bg-slate-50 py-3.5 pl-11 pr-12 outline-none focus:ring-2 focus:ring-sky-400" placeholder="Your password"/><button type="button" class="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" data-toggle="login-password"><i class="fa-regular fa-eye"></i></button></div></div>
+            <div class="flex justify-end"><button id="forgot-password" type="button" class="text-sm font-semibold text-sky-700 hover:underline">Forgot password?</button></div>
+            <button id="login-submit" class="w-full rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold py-3.5 shadow-lg shadow-slate-900/10" type="submit">Sign in <i class="fa-solid fa-arrow-right ml-2"></i></button>
+          </form>
+        </div>
+        <div id="register-panel" class="hidden-view">
+          <p class="text-xs font-bold tracking-[.2em] text-sky-700 uppercase">Get started</p>
+          <h2 class="text-3xl font-bold mt-2">Create your account</h2>
+          <p class="text-slate-500 text-sm mt-2">Choose your own account details. Your password is handled securely by Firebase Authentication.</p>
+          <form id="register-form" class="mt-7 space-y-4">
+            <div><label class="text-sm font-semibold block mb-2" for="register-name">Your name</label><input id="register-name" required maxlength="60" class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3.5 outline-none focus:ring-2 focus:ring-sky-400" placeholder="Enter your name"/></div>
+            <div><label class="text-sm font-semibold block mb-2" for="register-email">Email / Login ID</label><input id="register-email" type="email" required autocomplete="email" class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3.5 outline-none focus:ring-2 focus:ring-sky-400" placeholder="you@example.com"/></div>
+            <div><label class="text-sm font-semibold block mb-2" for="register-password">Create password</label><div class="relative"><input id="register-password" type="password" required minlength="8" autocomplete="new-password" class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3.5 pr-12 outline-none focus:ring-2 focus:ring-sky-400" placeholder="At least 8 characters"/><button type="button" class="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" data-toggle="register-password"><i class="fa-regular fa-eye"></i></button></div><p class="text-xs text-slate-400 mt-1">Use at least 8 characters.</p></div>
+            <div><label class="text-sm font-semibold block mb-2" for="register-confirm">Confirm password</label><input id="register-confirm" type="password" required minlength="8" autocomplete="new-password" class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3.5 outline-none focus:ring-2 focus:ring-sky-400" placeholder="Re-enter password"/></div>
+            <button id="register-submit" class="w-full rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-bold py-3.5 shadow-lg shadow-sky-600/20" type="submit">Create account <i class="fa-solid fa-user-plus ml-2"></i></button>
+          </form>
+        </div>
+        <p id="auth-message" role="status" class="text-sm mt-5 min-h-5 text-center"></p>
+        <p class="text-[11px] text-slate-400 text-center mt-8">By continuing, you agree to use PipeWatch AI responsibly.</p>
+      </section>
+    </div>
+  </main>
+
+  <!-- APP VIEW -->
+  <div id="app-screen" class="hidden-view min-h-screen lg:flex">
+    <div id="shade" class="hidden fixed inset-0 bg-slate-950/50 z-40" onclick="toggleSidebar(false)"></div>
+    <aside id="sidebar" class="w-[258px] bg-[#0b1424] text-slate-300 min-h-screen flex flex-col shrink-0 lg:sticky lg:top-0 lg:h-screen lg:overflow-y-auto">
+      <div class="h-[76px] px-6 flex items-center border-b border-white/5">
+        <div class="w-10 h-10 rounded-xl bg-sky-400/15 text-sky-300 flex items-center justify-center mr-3"><i class="fa-solid fa-droplet text-lg"></i></div>
+        <div><div class="brand text-lg font-bold text-white">PipeWatch<span class="text-sky-400"> AI.</span></div><div class="text-[10px] text-slate-500 tracking-widest uppercase">Underground pipeline intelligence</div></div>
+      </div>
+      <div class="px-4 pt-6 pb-2 text-[10px] font-bold tracking-[.2em] text-slate-500 uppercase">Workspace</div>
+      <nav class="px-3 space-y-1">
+        <button data-view="overview" class="nav-item active w-full text-left rounded-xl px-4 py-3 flex items-center gap-3 text-sm"><i class="fa-solid fa-grid-2 w-5"></i>Overview</button>
+        <button data-view="map" class="nav-item w-full text-left rounded-xl px-4 py-3 flex items-center gap-3 text-sm hover:bg-white/5"><i class="fa-solid fa-map-location-dot w-5"></i>Explore leakage map</button>
+        <button data-view="add" class="nav-item w-full text-left rounded-xl px-4 py-3 flex items-center gap-3 text-sm hover:bg-white/5"><i class="fa-solid fa-circle-plus w-5"></i>Report pipeline leakage</button>
+        <button data-view="reports" class="nav-item w-full text-left rounded-xl px-4 py-3 flex items-center gap-3 text-sm hover:bg-white/5"><i class="fa-solid fa-list-check w-5"></i>Community leakage reports</button>
+        <button data-view="analytics" class="nav-item w-full text-left rounded-xl px-4 py-3 flex items-center gap-3 text-sm hover:bg-white/5"><i class="fa-solid fa-chart-column w-5"></i>Insights</button>
+      </nav>
+      <div class="px-4 pt-7 pb-2 text-[10px] font-bold tracking-[.2em] text-slate-500 uppercase">Account</div>
+      <nav class="px-3 space-y-1">
+        <button data-view="profile" class="nav-item w-full text-left rounded-xl px-4 py-3 flex items-center gap-3 text-sm hover:bg-white/5"><i class="fa-regular fa-user w-5"></i>Profile & settings</button>
+      </nav>
+      <div class="mt-auto p-4">
+        <div class="rounded-2xl bg-white/5 border border-white/5 p-3 flex items-center gap-3">
+          <div id="side-avatar" class="w-9 h-9 rounded-xl bg-sky-500/20 text-sky-200 flex items-center justify-center font-bold">U</div>
+          <div class="min-w-0 flex-1"><div id="side-name" class="text-sm font-semibold text-white truncate">User</div><div id="side-email" class="text-[10px] text-slate-500 truncate">user@email.com</div></div>
+          <button id="logout-button" title="Sign out" class="text-slate-400 hover:text-white"><i class="fa-solid fa-arrow-right-from-bracket"></i></button>
+        </div>
+      </div>
+    </aside>
+
+    <main class="min-w-0 min-h-screen flex-1 w-full">
+      <header class="h-[76px] bg-white/90 backdrop-blur border-b border-slate-200/80 flex items-center justify-between px-5 sm:px-8 sticky top-0 z-20">
+        <div class="flex items-center gap-3">
+          <button class="lg:hidden text-slate-600 text-xl" onclick="toggleSidebar(true)"><i class="fa-solid fa-bars"></i></button>
+          <div><div id="top-title" class="font-bold text-lg">Overview</div><div id="top-subtitle" class="text-xs text-slate-400 hidden sm:block">Your underground pipeline leakage monitoring workspace</div></div>
+        </div>
+        <div class="flex items-center gap-3"><span class="hidden sm:inline-flex items-center gap-2 text-xs text-emerald-700 bg-emerald-50 rounded-full px-3 py-2"><span class="w-2 h-2 rounded-full bg-emerald-500"></span>Cloud sync enabled</span><div id="top-avatar" class="w-9 h-9 rounded-full bg-slate-900 text-white flex items-center justify-center text-sm font-bold">U</div></div>
+      </header>
+
+      <div class="p-4 sm:p-7 max-w-[1600px] mx-auto">
+        <!-- OVERVIEW -->
+        <section id="view-overview" class="app-view fade-in space-y-6">
+          <div class="rounded-3xl bg-gradient-to-r from-[#10213d] via-[#173b67] to-[#0f766e] text-white p-6 sm:p-8 relative overflow-hidden">
+            <div class="absolute -right-12 -top-20 w-72 h-72 rounded-full border-[35px] border-white/5"></div>
+            <div class="relative flex flex-col md:flex-row md:items-center justify-between gap-5">
+              <div><p class="text-sky-200 text-xs uppercase tracking-[.2em] font-bold">Your underground pipeline watch</p><h1 class="text-3xl sm:text-4xl font-bold mt-2">Hello, <span id="welcome-name">there</span>.</h1><p class="text-slate-200/80 mt-2 text-sm max-w-xl">Monitor suspected underground pipeline leakage. Submit a report when you notice water seepage, damp ground, unexplained water accumulation or signs of pipeline damage, and help map areas that may need inspection.</p></div>
+              <button data-goto="add" class="bg-white text-slate-900 font-bold rounded-xl px-5 py-3 hover:bg-sky-50 shadow-lg self-start"><i class="fa-solid fa-plus mr-2"></i>Report pipeline leakage</button>
+            </div>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+            <div class="bg-white rounded-2xl border border-slate-200/70 p-5 shadow-sm"><div class="flex justify-between"><span class="text-sm text-slate-500">Total leakage reports</span><span class="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center"><i class="fa-solid fa-clipboard-list"></i></span></div><div id="metric-total" class="text-3xl font-bold mt-3">0</div><div class="text-xs text-slate-400 mt-1">Reports submitted by all users</div></div>
+            <div class="bg-white rounded-2xl border border-slate-200/70 p-5 shadow-sm"><div class="flex justify-between"><span class="text-sm text-slate-500">Suspected leaks</span><span class="w-9 h-9 rounded-xl bg-red-50 text-red-600 flex items-center justify-center"><i class="fa-solid fa-triangle-exclamation"></i></span></div><div id="metric-yes" class="text-3xl font-bold mt-3 text-red-600">0</div><div class="text-xs text-slate-400 mt-1">Marked as suspected leakage: Yes</div></div>
+            <div class="bg-white rounded-2xl border border-slate-200/70 p-5 shadow-sm"><div class="flex justify-between"><span class="text-sm text-slate-500">No leakage reported</span><span class="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center"><i class="fa-solid fa-circle-check"></i></span></div><div id="metric-no" class="text-3xl font-bold mt-3 text-emerald-600">0</div><div class="text-xs text-slate-400 mt-1">Marked as leakage: No</div></div>
+            <div class="bg-white rounded-2xl border border-slate-200/70 p-5 shadow-sm"><div class="flex justify-between"><span class="text-sm text-slate-500">This month</span><span class="w-9 h-9 rounded-xl bg-violet-50 text-violet-600 flex items-center justify-center"><i class="fa-solid fa-calendar-days"></i></span></div><div id="metric-month" class="text-3xl font-bold mt-3">0</div><div class="text-xs text-slate-400 mt-1">Leakage reports this month</div></div>
+          </div>
+          <div class="grid grid-cols-1 xl:grid-cols-5 gap-5">
+            <div class="xl:col-span-3 bg-white rounded-2xl border border-slate-200/70 shadow-sm overflow-hidden">
+              <div class="p-5 flex items-center justify-between"><div><h2 class="font-bold text-lg">Underground pipeline leakage map</h2><p class="text-xs text-slate-400 mt-1">Your reported leakage locations</p></div><button data-goto="map" class="text-sm font-semibold text-sky-700 hover:underline">Explore leakage map <i class="fa-solid fa-arrow-right ml-1"></i></button></div>
+              <div class="px-3 pb-3"><div id="map-overview" class="mapbox rounded-xl"></div></div>
+            </div>
+            <div class="xl:col-span-2 bg-white rounded-2xl border border-slate-200/70 shadow-sm p-5"><div class="flex items-center justify-between"><div><h2 class="font-bold text-lg">Recent activity</h2><p class="text-xs text-slate-400 mt-1">Latest community reports</p></div><i class="fa-solid fa-clock-rotate-left text-slate-300"></i></div><div id="recent-activity" class="mt-4">No leakage reports yet.</div></div>
+          </div>
+        </section>
+
+        <!-- MAP -->
+        <section id="view-map" class="app-view hidden-view space-y-4">
+          <div class="flex flex-wrap justify-between items-end gap-3"><div><h1 class="text-2xl font-bold">Explore leakage map</h1><p class="text-sm text-slate-500 mt-1">Explore locations where suspected underground pipeline leakage has been reported.</p></div><div class="flex flex-wrap items-center gap-2"><button id="locate-me" type="button" class="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-700"><i class="fa-solid fa-location-crosshairs mr-2"></i>My location</button><div class="flex gap-2 text-xs"><span class="px-3 py-2 rounded-full bg-red-50 text-red-700"><i class="fa-solid fa-circle mr-1"></i>Leakage suspected</span><span class="px-3 py-2 rounded-full bg-emerald-50 text-emerald-700"><i class="fa-solid fa-circle mr-1"></i>No leakage reported</span></div></div></div>
+          <div class="bg-white p-2 sm:p-3 rounded-2xl border border-slate-200 shadow-sm"><div id="map-full" class="rounded-xl"></div></div>
+          <p id="map-notice" class="text-xs text-slate-400">Live map powered by OpenStreetMap. Report markers are synced from your Firebase account.</p>
+        </section>
+
+        <!-- ADD -->
+        <section id="view-add" class="app-view hidden-view">
+          <div class="max-w-3xl mx-auto">
+            <div class="mb-5"><h1 class="text-2xl font-bold">Report pipeline leakage</h1><p class="text-sm text-slate-500 mt-1">Record suspected underground pipeline leakage using observations, photo evidence and geographic location. Reports are submitted by users and can be reviewed on the shared leakage map.</p></div>
+            <form id="report-form" class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 sm:p-7 space-y-5">
+              <div><label class="block text-sm font-bold mb-2" for="report-title">Report title</label><input id="report-title" maxlength="100" required class="w-full border border-slate-200 bg-slate-50 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-sky-400" placeholder="e.g. Water leakage near the main gate"/></div>
+              <div><p class="block text-sm font-bold mb-3">Is water leakage suspected at this location?</p><div class="grid grid-cols-2 gap-3"><label class="cursor-pointer"><input type="radio" name="leakageStatus" value="yes" checked class="peer sr-only"/><div class="rounded-xl border-2 border-slate-200 p-4 peer-checked:border-red-400 peer-checked:bg-red-50 text-center"><i class="fa-solid fa-triangle-exclamation text-red-500 text-xl"></i><div class="font-bold mt-2">Yes, leakage suspected</div><div class="text-xs text-slate-400 mt-1">Possible pipeline leakage</div></div></label><label class="cursor-pointer"><input type="radio" name="leakageStatus" value="no" class="peer sr-only"/><div class="rounded-xl border-2 border-slate-200 p-4 peer-checked:border-emerald-400 peer-checked:bg-emerald-50 text-center"><i class="fa-solid fa-circle-check text-emerald-500 text-xl"></i><div class="font-bold mt-2">No leakage reported</div><div class="text-xs text-slate-400 mt-1">No visible leakage reported</div></div></label></div></div>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><label class="block text-sm font-bold mb-2" for="report-lat">Latitude</label><input id="report-lat" type="number" step="any" min="-90" max="90" required class="w-full border border-slate-200 bg-slate-50 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-sky-400" placeholder="19.0760"/></div><div><label class="block text-sm font-bold mb-2" for="report-lng">Longitude</label><input id="report-lng" type="number" step="any" min="-180" max="180" required class="w-full border border-slate-200 bg-slate-50 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-sky-400" placeholder="72.8777"/></div></div>
+              <div class="flex flex-wrap items-center gap-3"><button type="button" id="get-location" class="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-sm font-semibold"><i class="fa-solid fa-location-crosshairs mr-2"></i>Use my location</button><span id="location-status" class="text-xs text-slate-400"></span></div>
+              <div><label class="block text-sm font-bold mb-2">Photo evidence (optional)</label>
+                <p class="text-xs text-slate-500 mb-3">Add a clear photo of water seepage, a wet patch, water accumulation or a suspected pipeline leak. JPG, PNG or WebP, up to 8 MB. The image is attached to this report.</p>
+                <div class="rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-center">
+                  <span class="mx-auto mb-3 w-12 h-12 rounded-full bg-sky-100 text-sky-700 flex items-center justify-center"><i class="fa-solid fa-camera text-xl"></i></span>
+                  <p class="font-bold text-sm mb-1">Add pipeline leakage photo evidence</p>
+                  <p class="text-xs text-slate-400 mb-4">Take a new photo or select an existing picture.</p>
+                  <div class="flex flex-col sm:flex-row justify-center gap-2">
+                    <button type="button" id="take-photo-btn" class="px-4 py-3 rounded-xl bg-slate-900 text-white text-sm font-semibold"><i class="fa-solid fa-camera mr-2"></i>Take a photo</button>
+                    <button type="button" id="choose-gallery-btn" class="px-4 py-3 rounded-xl bg-white border border-slate-300 text-slate-800 text-sm font-semibold"><i class="fa-regular fa-images mr-2"></i>Choose from gallery</button>
+                  </div>
+                </div>
+                <input id="report-photo-camera" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" class="sr-only" />
+                <input id="report-photo-gallery" type="file" accept="image/jpeg,image/png,image/webp" class="sr-only" />
+
+                <div id="photo-preview-wrap" class="hidden mt-3 rounded-xl border border-slate-200 bg-white p-3">
+                  <div class="flex items-start gap-3"><img id="photo-preview" alt="Selected water leakage evidence preview" class="w-28 h-24 object-cover rounded-lg bg-slate-100"/><div class="min-w-0 flex-1"><p id="photo-file-name" class="text-sm font-semibold break-all"></p><p id="photo-file-size" class="text-xs text-slate-400 mt-1"></p><button id="remove-photo" type="button" class="text-sm font-semibold text-red-600 mt-3"><i class="fa-regular fa-trash-can mr-1"></i>Remove photo</button></div></div>
+                </div>
+                <p id="photo-status" class="text-xs text-slate-500 mt-2" role="status"></p>
+              </div>
+              <div><label class="block text-sm font-bold mb-2" for="report-notes">Notes (optional)</label><textarea id="report-notes" rows="3" maxlength="500" class="w-full border border-slate-200 bg-slate-50 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-sky-400" placeholder="Add a short description or nearby landmark…"></textarea></div>
+              <button id="save-report" type="submit" class="w-full rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold py-3.5"><i class="fa-solid fa-cloud-arrow-up mr-2"></i>Submit leakage report</button>
+              <p id="report-message" class="text-sm" role="status"></p>
+            </form>
+          </div>
+        </section>
+
+        <!-- REPORTS -->
+        <section id="view-reports" class="app-view hidden-view space-y-5">
+          <div class="flex flex-wrap justify-between items-end gap-3"><div><h1 class="text-2xl font-bold">Community leakage reports</h1><p class="text-sm text-slate-500 mt-1">View leakage observations submitted by every registered user.</p></div><button data-goto="add" class="bg-slate-900 text-white rounded-xl px-4 py-2.5 text-sm font-bold"><i class="fa-solid fa-plus mr-2"></i>New leakage report</button></div>
+          <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden"><div class="p-4 border-b border-slate-100 flex flex-col sm:flex-row gap-3 justify-between"><input id="report-search" placeholder="Search report title, notes or location…" class="border border-slate-200 bg-slate-50 rounded-xl px-4 py-2.5 text-sm w-full sm:max-w-sm"/><select id="report-filter" class="border border-slate-200 bg-slate-50 rounded-xl px-3 py-2.5 text-sm"><option value="all">All leakage reports</option><option value="yes">Leakage suspected</option><option value="no">No leakage reported</option></select></div><div id="report-list" class="divide-y divide-slate-100"><div class="p-8 text-center text-slate-400">No leakage reports yet.</div></div></div>
+        </section>
+
+        <!-- ANALYTICS -->
+        <section id="view-analytics" class="app-view hidden-view space-y-5">
+          <div><h1 class="text-2xl font-bold">Insights</h1><p class="text-sm text-slate-500 mt-1">A shared summary of water leakage observations submitted by all registered users.</p></div>
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5"><h2 class="font-bold">Leakage observation split</h2><p class="text-xs text-slate-400 mt-1">Suspected leakage vs no leakage observed</p><div class="mt-5 space-y-4"><div><div class="flex justify-between text-sm mb-2"><span>Leakage suspected</span><strong id="yes-label">0</strong></div><div class="h-3 rounded-full bg-slate-100 overflow-hidden"><div id="yes-bar" class="h-full bg-red-500 rounded-full" style="width:0%"></div></div></div><div><div class="flex justify-between text-sm mb-2"><span>No leakage reported</span><strong id="no-label">0</strong></div><div class="h-3 rounded-full bg-slate-100 overflow-hidden"><div id="no-bar" class="h-full bg-emerald-500 rounded-full" style="width:0%"></div></div></div></div></div>
+            <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5"><h2 class="font-bold">Monthly activity</h2><p class="text-xs text-slate-400 mt-1">Leakage reports saved in the last six months</p><div id="monthly-chart" class="mt-5 space-y-3"></div></div>
+          </div>
+          <div class="bg-sky-50 border border-sky-100 rounded-2xl p-5 text-sm text-sky-900"><i class="fa-solid fa-circle-info mr-2"></i>These insights summarize user-submitted underground pipeline leakage reports. They are not independently verified leak locations or official municipal records.</div>
+        </section>
+
+        <!-- PROFILE -->
+        <section id="view-profile" class="app-view hidden-view space-y-5">
+          <div><h1 class="text-2xl font-bold">Profile & settings</h1><p class="text-sm text-slate-500 mt-1">Manage your profile and account preferences.</p></div>
+          <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+            <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 text-center"><div id="profile-avatar" class="w-20 h-20 rounded-3xl bg-slate-900 text-white text-2xl font-bold flex items-center justify-center mx-auto">U</div><h2 id="profile-name-display" class="font-bold text-xl mt-4">User</h2><p id="profile-email-display" class="text-sm text-slate-400 mt-1 break-all">email</p><div class="mt-5 text-xs text-emerald-700 bg-emerald-50 rounded-full px-3 py-2 inline-block"><i class="fa-solid fa-shield-halved mr-1"></i>Firebase authenticated</div></div>
+            <div class="lg:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm p-6"><h2 class="font-bold text-lg">Personal details</h2><form id="profile-form" class="mt-5 space-y-4"><div><label for="profile-name" class="block text-sm font-semibold mb-2">Display name</label><input id="profile-name" maxlength="60" required class="w-full border border-slate-200 bg-slate-50 rounded-xl px-4 py-3"/></div><div><label class="block text-sm font-semibold mb-2">Login ID / Email</label><input id="profile-email" disabled class="w-full border border-slate-200 bg-slate-100 rounded-xl px-4 py-3 text-slate-500"/></div><button class="rounded-xl bg-slate-900 text-white font-bold px-5 py-3" type="submit">Save profile</button><p id="profile-message" class="text-sm"></p></form><div class="border-t border-slate-100 mt-6 pt-5"><h3 class="font-bold">Password</h3><p class="text-xs text-slate-500 mt-1">Firebase sends a secure password reset email. Your password is never displayed or stored in your profile.</p><button id="profile-reset" class="mt-3 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold hover:bg-slate-50"><i class="fa-solid fa-key mr-2"></i>Send password reset email</button></div></div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <div id="toast" class="fixed bottom-5 right-5 z-[100] hidden max-w-sm rounded-xl px-4 py-3 text-sm text-white shadow-xl"></div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import {
+      getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword,
+      onAuthStateChanged, signOut, sendPasswordResetEmail, updateProfile
+    } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import {
+      getFirestore, doc, setDoc, getDoc, getDocs, collection, addDoc, onSnapshot,
+      query, orderBy, serverTimestamp, deleteDoc
+    } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+    // Replace these values with the exact Web App config from Firebase Console
+    // if your Firebase project uses different credentials.
+    const firebaseConfig = {
+      apiKey: "AIzaSyBdveMrggxDP2SM_l2lzr_QBib_MTeLbxY",
+      authDomain: "roadvision-ai-4e1ea.firebaseapp.com",
+      projectId: "roadvision-ai-4e1ea",
+      messagingSenderId: "960586202623",
+      appId: "1:960586202623:web:d688be3316bfde3b813bca"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+    let currentUser = null, unsubscribeReports = null, reports = [];
+    let mapOverview = null, mapFull = null, markersOverview = [], markersFull = [];
+    const $ = id => document.getElementById(id);
+    const safe = v => String(v ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+    const millis = t => t?.toMillis ? t.toMillis() : (t?.seconds ? t.seconds*1000 : (typeof t === "number" ? t : 0));
+    const fmtDate = t => millis(t) ? new Date(millis(t)).toLocaleString() : "Just now";
+    const firstName = name => (name || "there").trim().split(/\s+/)[0];
+    function message(id, text, error=false) { $(id).textContent = text; $(id).className = `text-sm mt-4 ${error ? "text-red-600" : "text-emerald-600"}`; }
+    function toast(text, error=false) { const el=$("toast"); el.textContent=text; el.className=`fixed bottom-5 right-5 z-[100] max-w-sm rounded-xl px-4 py-3 text-sm text-white shadow-xl ${error?"bg-red-600":"bg-slate-900"}`; setTimeout(()=>el.classList.add("hidden"),3500); }
+    const buttonLabels = {
+      "login-submit": 'Sign in <i class="fa-solid fa-arrow-right ml-2"></i>',
+      "register-submit": 'Create account <i class="fa-solid fa-user-plus ml-2"></i>',
+      "save-report": '<i class="fa-solid fa-cloud-arrow-up mr-2"></i>Submit leakage report'
+    };
+    function setBusy(id, busy, label) {
+      const b=$(id); if(!b) return;
+      b.disabled=busy;
+      b.setAttribute("aria-busy",String(busy));
+      b.innerHTML=busy?'<i class="fa-solid fa-spinner fa-spin mr-2"></i>Please wait…':(label || buttonLabels[id] || "Continue");
+    }
+    // Always release the UI even when a Firebase request never resolves.
+    function withTimeout(promise, ms, operation) {
+      let timer;
+      const timeout = new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          const err = new Error(`${operation} is taking too long. Check your connection, Firebase Authentication settings and authorized domains, then retry.`);
+          err.code = "app/timeout";
+          reject(err);
+        }, ms);
+      });
+      return Promise.race([Promise.resolve(promise), timeout]).finally(() => clearTimeout(timer));
+    }
+
+
+    function switchAuthTab(tab) {
+      const login=tab==="login";
+      $("login-panel").classList.toggle("hidden-view",!login);
+      $("register-panel").classList.toggle("hidden-view",login);
+      $("tab-login").className=`flex-1 py-2.5 rounded-lg text-sm font-bold ${login?"bg-white shadow-sm text-slate-900":"text-slate-500"}`;
+      $("tab-register").className=`flex-1 py-2.5 rounded-lg text-sm font-bold ${!login?"bg-white shadow-sm text-slate-900":"text-slate-500"}`;
+      $("auth-message").textContent="";
+    }
+    $("tab-login").addEventListener("click",()=>switchAuthTab("login"));
+    $("tab-register").addEventListener("click",()=>switchAuthTab("register"));
+    document.querySelectorAll("[data-toggle]").forEach(b=>b.addEventListener("click",()=>{const i=$(b.dataset.toggle);i.type=i.type==="password"?"text":"password";b.innerHTML=i.type==="password"?'<i class="fa-regular fa-eye"></i>':'<i class="fa-regular fa-eye-slash"></i>';}));
+
+    $("register-form").addEventListener("submit",async e=>{
+      e.preventDefault();
+      const name=$("register-name").value.trim(), email=$("register-email").value.trim(), password=$("register-password").value, confirm=$("register-confirm").value;
+      if(password.length<8) return message("auth-message","Password must contain at least 8 characters.",true);
+      if(password!==confirm) return message("auth-message","Passwords do not match.",true);
+      setBusy("register-submit",true);
+      try {
+        const cred=await withTimeout(
+          createUserWithEmailAndPassword(auth,email,password),
+          15000,
+          "Account creation"
+        );
+
+        // Firestore profile sync runs separately; it cannot block account creation.
+        // Auth account creation is the critical step. Profile sync must never
+        // keep the user trapped on the registration screen.
+        updateProfile(cred.user,{displayName:name}).catch(err=>console.warn("Profile update:",err));
+        setDoc(doc(db,"users",cred.user.uid),{
+          displayName:name,email,
+          createdAt:serverTimestamp(),
+          updatedAt:serverTimestamp()
+        },{merge:true}).catch(err=>console.error("Firestore profile sync failed:",err));
+        message("auth-message","Account created. Opening your dashboard…");
+      } catch(err) {
+        console.error("Registration failed:",err);
+        message("auth-message",authError(err),true);
+      } finally {
+        setBusy("register-submit",false);
+      }
+    });
+    $("login-form").addEventListener("submit",async e=>{
+      e.preventDefault(); setBusy("login-submit",true);
+      try {
+        await withTimeout(
+          signInWithEmailAndPassword(auth,$("login-email").value.trim(),$("login-password").value),
+          15000,
+          "Sign in"
+        );
+      } catch(err) {
+        console.error("Login failed:",err);
+        message("auth-message",authError(err),true);
+      } finally {
+        setBusy("login-submit",false);
+      }
+    });
+    $("forgot-password").addEventListener("click",async()=>{
+      const email=$("login-email").value.trim();
+      if(!email) return message("auth-message","Enter your email ID first, then select Forgot password.",true);
+      try { await sendPasswordResetEmail(auth,email); message("auth-message","Password reset email sent. Check your inbox."); }
+      catch(err) { message("auth-message",authError(err),true); }
+    });
+    function authError(err) {
+      const map={
+        "auth/email-already-in-use":"An account already exists with this email.",
+        "auth/invalid-email":"Enter a valid email address.",
+        "auth/weak-password":"Choose a stronger password.",
+        "auth/invalid-credential":"Email or password is incorrect.",
+        "auth/user-not-found":"No account found for this email.",
+        "auth/wrong-password":"Email or password is incorrect.",
+        "auth/too-many-requests":"Too many attempts. Try again later.",
+        "auth/operation-not-allowed":"Enable Email/Password sign-in in Firebase Authentication.",
+        "auth/network-request-failed":"Network error. Check your internet connection, disable VPN/ad-blocking temporarily, and retry.",
+        "auth/unauthorized-domain":"This website domain is not authorized. Add it under Firebase Authentication → Settings → Authorized domains.",
+        "app/timeout":"Firebase did not respond in time. Check your connection and Firebase project configuration."
+      };
+      return map[err.code] || err.message || "Something went wrong.";
+    }
+
+    window.toggleSidebar = open => { $("sidebar").classList.toggle("open",open); $("shade").classList.toggle("show",open); };
+    const viewMeta={
+      overview:["Overview","Your underground pipeline leakage monitoring workspace"],
+      map:["Explore leakage map","Reported underground pipeline leakage locations"],
+      add:["Add leakage report","Record suspected leakage and its location"],
+      reports:["Community leakage reports","Review all community leakage reports"],
+      analytics:["Insights","Explore your leakage reporting activity"],
+      profile:["Profile & settings","Manage your account"]
+    };
+    function navigate(view) {
+      document.querySelectorAll(".app-view").forEach(s=>s.classList.toggle("hidden-view",s.id!==`view-${view}`));
+      document.querySelectorAll(".nav-item").forEach(b=>b.classList.toggle("active",b.dataset.view===view));
+      $("top-title").textContent=viewMeta[view][0]; $("top-subtitle").textContent=viewMeta[view][1];
+      toggleSidebar(false);
+      if(view==="map") setTimeout(()=>mapFull?.invalidateSize(),180);
+      if(view==="overview") setTimeout(()=>mapOverview?.invalidateSize(),180);
+    }
+    document.querySelectorAll(".nav-item").forEach(b=>b.addEventListener("click",()=>navigate(b.dataset.view)));
+    document.querySelectorAll("[data-goto]").forEach(b=>b.addEventListener("click",()=>navigate(b.dataset.goto)));
+
+    let userLocationMarker = null;
+    function initMap() {
+      if(!window.L) throw new Error("Map library did not load. Check that unpkg.com is reachable.");
+      const center=[19.0760,72.8777];
+      const osmUrl="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+      const options={maxZoom:19,attribution:'&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>',
+        crossOrigin:true};
+      mapOverview=L.map("map-overview",{scrollWheelZoom:false}).setView(center,11);
+      mapFull=L.map("map-full").setView(center,11);
+      const layer1=L.tileLayer(osmUrl,options);
+      const layer2=L.tileLayer(osmUrl,options);
+      layer1.addTo(mapOverview); layer2.addTo(mapFull);
+      const tileError=()=>{$("map-notice").textContent="Map tiles could not load. Check your internet connection; your Firebase reports are still saved.";};
+      layer1.on("tileerror",tileError); layer2.on("tileerror",tileError);
+      layer1.on("load",()=>{$("map-notice").textContent="Live OpenStreetMap loaded. Your water leakage reports appear as colored markers.";});
+      layer2.on("load",()=>{$("map-notice").textContent="Live OpenStreetMap loaded. Tap a marker to view its report.";});
+    }
+    function locateOnMap() {
+      if(!navigator.geolocation){toast("Location is not supported by this browser.",true);return;}
+      const button=$("locate-me");
+      button.disabled=true; button.innerHTML='<i class="fa-solid fa-spinner fa-spin mr-2"></i>Finding you…';
+      navigator.geolocation.getCurrentPosition(pos=>{
+        const point=[pos.coords.latitude,pos.coords.longitude];
+        if(userLocationMarker){mapFull.removeLayer(userLocationMarker);}
+        userLocationMarker=L.circleMarker(point,{radius:9,color:"#fff",weight:3,fillColor:"#2563eb",fillOpacity:1})
+          .bindPopup("<b>Your current location</b>").addTo(mapFull).openPopup();
+        mapFull.setView(point,16); setTimeout(()=>mapFull.invalidateSize(),100);
+        button.disabled=false; button.innerHTML='<i class="fa-solid fa-location-crosshairs mr-2"></i>My location';
+        $("map-notice").textContent="Showing your current location. Your location is not saved unless you submit a report.";
+      },err=>{
+        button.disabled=false; button.innerHTML='<i class="fa-solid fa-location-crosshairs mr-2"></i>My location';
+        const reason=err.code===1?"Allow location access in your browser settings.":err.code===2?"Your location is currently unavailable.":"Location request timed out.";
+        toast(reason,true);
+      },{enableHighAccuracy:true,timeout:12000,maximumAge:30000});
+    }
+    $("locate-me").addEventListener("click",locateOnMap);
+    function iconFor(pothole) {
+      const color=pothole?"#ef4444":"#10b981";
+      return L.divIcon({className:"",html:`<div style="width:16px;height:16px;border-radius:50%;background:${color};border:3px solid white;box-shadow:0 1px 8px #0005"></div>`,iconSize:[16,16],iconAnchor:[8,8]});
+    }
+    function updateMaps() {
+      if(!mapOverview||!mapFull)return;
+      markersOverview.forEach(m=>mapOverview.removeLayer(m)); markersFull.forEach(m=>mapFull.removeLayer(m)); markersOverview=[];markersFull=[];
+      const valid=reports.filter(r=>Number.isFinite(Number(r.lat))&&Number.isFinite(Number(r.lng)));
+      const bounds=[];
+      valid.forEach(r=>{
+        const pt=[Number(r.lat),Number(r.lng)], found=r.pothole==="yes";
+        const popup=`<div style="min-width:150px"><b>${safe(r.title)}</b><br>${found?"Leakage suspected":"No leakage reported"}<br><small>${safe(fmtDate(r.createdAt))}</small>${r.photoDataUrl?`<br><img src="${r.photoDataUrl}" alt="Report photo" style="width:100%;max-width:220px;max-height:140px;object-fit:cover;border-radius:8px;margin-top:8px"/>`:`<br><small style="color:#64748b">No photo attached</small>`}</div>`;
+        const a=L.marker(pt,{icon:iconFor(found)}).bindPopup(popup).addTo(mapOverview);
+        const b=L.marker(pt,{icon:iconFor(found)}).bindPopup(popup).addTo(mapFull);
+        markersOverview.push(a);markersFull.push(b);bounds.push(pt);
+      });
+      if(bounds.length){mapOverview.fitBounds(bounds,{padding:[20,20],maxZoom:14});mapFull.fitBounds(bounds,{padding:[30,30],maxZoom:16});}
+    }
+    function updateMetrics() {
+      const yes=reports.filter(r=>r.pothole==="yes").length,no=reports.filter(r=>r.pothole==="no").length;
+      const now=new Date(), month=reports.filter(r=>{const d=new Date(millis(r.createdAt));return d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear();}).length;
+      $("metric-total").textContent=reports.length;$("metric-yes").textContent=yes;$("metric-no").textContent=no;$("metric-month").textContent=month;
+      $("yes-label").textContent=yes;$("no-label").textContent=no;
+      const total=yes+no;$("yes-bar").style.width=total?`${yes/total*100}%`:"0%";$("no-bar").style.width=total?`${no/total*100}%`:"0%";
+      const months=[];
+      for(let i=5;i>=0;i--){const d=new Date(now.getFullYear(),now.getMonth()-i,1);const count=reports.filter(r=>{const x=new Date(millis(r.createdAt));return x.getMonth()===d.getMonth()&&x.getFullYear()===d.getFullYear();}).length;months.push({label:d.toLocaleString(undefined,{month:"short"}),count});}
+      const max=Math.max(1,...months.map(x=>x.count));
+      $("monthly-chart").innerHTML=months.map(m=>`<div class="flex items-center gap-3 text-xs"><span class="w-9 text-slate-500">${m.label}</span><div class="h-2.5 bg-slate-100 rounded-full flex-1 overflow-hidden"><div class="h-full bg-sky-500 rounded-full" style="width:${m.count/max*100}%"></div></div><strong class="w-5 text-right">${m.count}</strong></div>`).join("");
+    }
+    function reportCard(r) {
+      const found=r.pothole==="yes";
+      const mapUrl=`https://www.google.com/maps?q=${encodeURIComponent(`${r.lat},${r.lng}`)}`;
+      const owner = r.createdBy === currentUser?.uid;
+      const author = r.createdByName || r.authorName || "Community member";
+      return `<article class="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-4"><div class="w-11 h-11 rounded-xl flex items-center justify-center ${found?"bg-red-50 text-red-600":"bg-emerald-50 text-emerald-600"}"><i class="fa-solid ${found?"fa-triangle-exclamation":"fa-circle-check"} text-lg"></i></div><div class="flex-1 min-w-0"><div class="font-bold">${safe(r.title)}</div><div class="text-xs text-slate-400 mt-1">${safe(fmtDate(r.createdAt))} · ${Number(r.lat).toFixed(5)}, ${Number(r.lng).toFixed(5)}</div><div class="text-xs text-sky-700 mt-1"><i class="fa-regular fa-user mr-1"></i>Reported by ${safe(author)}</div>${r.notes?`<p class="text-sm text-slate-500 mt-2">${safe(r.notes)}</p>`:""}</div>${r.photoDataUrl?`<a href="${r.photoDataUrl}" target="_blank" rel="noopener" title="View attached photo"><img src="${r.photoDataUrl}" alt="Photo evidence for ${safe(r.title)}" class="w-20 h-16 object-cover rounded-lg border border-slate-200"/></a>`:`<span class="text-xs text-slate-400"><i class="fa-regular fa-image mr-1"></i>No photo</span>`}<div class="flex items-center gap-2"><span class="text-xs font-bold px-3 py-2 rounded-full ${found?"bg-red-50 text-red-700":"bg-emerald-50 text-emerald-700"}">${found?"Leakage suspected":"No leakage reported"}</span><a href="${mapUrl}" target="_blank" rel="noopener" class="w-9 h-9 flex items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50" title="Open location in map"><i class="fa-solid fa-arrow-up-right-from-square"></i></a>${owner?`<button data-delete="${safe(r.id)}" class="delete-report w-9 h-9 rounded-lg border border-slate-200 text-slate-400 hover:text-red-600 hover:bg-red-50" title="Delete your report"><i class="fa-regular fa-trash-can"></i></button>`:""}</div></article>`;
+    }
+    function renderReports() {
+      $("recent-activity").innerHTML=reports.length?reports.slice(0,5).map(r=>`<div class="py-3 border-b border-slate-100 last:border-0 flex gap-3 items-center"><span class="w-8 h-8 rounded-lg flex items-center justify-center ${r.pothole==="yes"?"bg-red-50 text-red-500":"bg-emerald-50 text-emerald-600"}"><i class="fa-solid ${r.pothole==="yes"?"fa-triangle-exclamation":"fa-check"}"></i></span><div class="min-w-0 flex-1"><div class="text-sm font-semibold truncate">${safe(r.title)}</div><div class="text-xs text-slate-400">${safe(fmtDate(r.createdAt))} · ${safe(r.createdByName||"Community member")}</div></div></div>`).join(""):'<p class="text-sm text-slate-400 py-5">No leakage reports yet. Add your first water leakage observation.</p>';
+      filterReports();
+    }
+    function filterReports() {
+      const term=$("report-search").value.toLowerCase().trim(), filter=$("report-filter").value;
+      const list=reports.filter(r=>(filter==="all"||r.pothole===filter)&&`${r.title} ${r.notes} ${r.lat} ${r.lng} ${r.createdByName||""}`.toLowerCase().includes(term));
+      $("report-list").innerHTML=list.length?list.map(reportCard).join(""):'<div class="p-10 text-center text-slate-400">No leakage reports match your search.</div>';
+      document.querySelectorAll(".delete-report").forEach(b=>b.addEventListener("click",()=>removeReport(b.dataset.delete)));
+    }
+    $("report-search").addEventListener("input",filterReports);$("report-filter").addEventListener("change",filterReports);
+
+    async function removeReport(id) {
+      if(!confirm("Delete this report permanently?"))return;
+      try{await deleteDoc(doc(db,"reports",id));toast("Your report was deleted.");}
+      catch(e){toast("Could not delete report. Check Firestore rules.",true);}
+    }
+    let selectedPhotoData = "";
+    const photoInput = $("report-photo-gallery");
+    const cameraPhotoInput = $("report-photo-camera");
+    $("choose-gallery-btn").addEventListener("click",()=>photoInput.click());
+    $("take-photo-btn").addEventListener("click",()=>cameraPhotoInput.click());
+    function clearSelectedPhoto() {
+      selectedPhotoData = "";
+      photoInput.value = "";
+      cameraPhotoInput.value = "";
+      $("photo-preview-wrap").classList.add("hidden");
+      $("photo-preview").removeAttribute("src");
+      $("photo-file-name").textContent = "";
+      $("photo-file-size").textContent = "";
+      $("photo-status").textContent = "";
+    }
+    function compressPhoto(file) {
+      return new Promise((resolve,reject)=>{
+        const reader=new FileReader();
+        reader.onerror=()=>reject(new Error("Could not read the selected image."));
+        reader.onload=()=>{
+          const img=new Image();
+          img.onerror=()=>reject(new Error("This image could not be opened. Try another photo."));
+          img.onload=()=>{
+            const scale=Math.min(1,1400/Math.max(img.width,img.height));
+            const canvas=document.createElement("canvas");
+            canvas.width=Math.max(1,Math.round(img.width*scale));
+            canvas.height=Math.max(1,Math.round(img.height*scale));
+            canvas.getContext("2d").drawImage(img,0,0,canvas.width,canvas.height);
+            let quality=.78, data=canvas.toDataURL("image/jpeg",quality);
+            while(data.length>560000 && quality>.42){quality-=.08;data=canvas.toDataURL("image/jpeg",quality);}
+            if(data.length>560000) return reject(new Error("This image is too detailed to attach. Choose a smaller photo."));
+            resolve(data);
+          };
+          img.src=reader.result;
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+    async function handlePhotoSelection(event) {
+      const file=event.target.files?.[0];
+      if(!file)return;
+      if(!["image/jpeg","image/png","image/webp"].includes(file.type)){clearSelectedPhoto();$("photo-status").textContent="Choose a JPG, PNG or WebP image.";return;}
+      if(file.size>8*1024*1024){clearSelectedPhoto();$("photo-status").textContent="Photo must be 8 MB or smaller.";return;}
+      $("photo-status").textContent="Preparing photo…";
+      try{
+        selectedPhotoData=await compressPhoto(file);
+        $("photo-preview").src=selectedPhotoData;
+        $("photo-file-name").textContent=file.name;
+        $("photo-file-size").textContent=`${(file.size/1024/1024).toFixed(2)} MB original · optimized for saving`;
+        $("photo-preview-wrap").classList.remove("hidden");
+        $("photo-status").textContent="Photo ready. It will be saved with this report.";
+      }catch(err){clearSelectedPhoto();$("photo-status").textContent=err.message;}
+    }
+    photoInput.addEventListener("change",handlePhotoSelection);
+    cameraPhotoInput.addEventListener("change",handlePhotoSelection);
+    $("remove-photo").addEventListener("click",clearSelectedPhoto);
+
+    $("report-form").addEventListener("submit",async e=>{
+      e.preventDefault();
+      const title=$("report-title").value.trim(),lat=Number($("report-lat").value),lng=Number($("report-lng").value);
+      const leakStatus=document.querySelector('input[name="leakageStatus"]:checked').value;
+      if(!title)return message("report-message","Please enter a title.",true);
+      if(!Number.isFinite(lat)||lat < -90||lat > 90||!Number.isFinite(lng)||lng < -180||lng > 180)return message("report-message","Enter valid latitude and longitude.",true);
+      setBusy("save-report",true);
+      try{
+        await addDoc(collection(db,"reports"),{title,lat,lng,pothole:leakStatus,notes:$("report-notes").value.trim(),photoDataUrl:selectedPhotoData||null,createdBy:currentUser.uid,createdByName:currentUser.displayName||"Community member",createdAt:serverTimestamp()});
+        $("report-form").reset();clearSelectedPhoto();message("report-message","Pipeline leakage report saved successfully.");toast("Your pipeline leakage report has been saved.");navigate("reports");
+      }catch(err){console.error(err);message("report-message","Could not submit leakage report. Check the Firebase connection.",true);}
+      finally{setBusy("save-report",false,'<i class="fa-solid fa-cloud-arrow-up mr-2"></i>Submit leakage report');}
+    });
+    $("get-location").addEventListener("click",()=>{
+      if(!navigator.geolocation)return $("location-status").textContent="Location is not supported by this browser.";
+      $("location-status").textContent="Requesting location permission…";
+      navigator.geolocation.getCurrentPosition(pos=>{$("report-lat").value=pos.coords.latitude.toFixed(6);$("report-lng").value=pos.coords.longitude.toFixed(6);$("location-status").textContent="Location added.";},err=>{$("location-status").textContent=err.code===1?"Permission denied.":"Location unavailable. HTTPS is required.";},{enableHighAccuracy:true,timeout:12000});
+    });
+
+    function populateProfile(user,profile={}) {
+      const name=profile.displayName||user.displayName||"PipeWatch AI User", email=user.email||"";
+      $("welcome-name").textContent=firstName(name);
+      $("side-name").textContent=name;$("side-email").textContent=email;
+      $("side-avatar").textContent=name.charAt(0).toUpperCase();$("top-avatar").textContent=name.charAt(0).toUpperCase();
+      $("profile-avatar").textContent=name.charAt(0).toUpperCase();$("profile-name-display").textContent=name;$("profile-email-display").textContent=email;
+      $("profile-name").value=name;$("profile-email").value=email;
+    }
+    $("profile-form").addEventListener("submit",async e=>{
+      e.preventDefault();const name=$("profile-name").value.trim();if(!currentUser)return message("profile-message","Please sign in again.",true);if(!name)return message("profile-message","Name cannot be blank.",true);
+      try{await updateProfile(currentUser,{displayName:name});await setDoc(doc(db,"users",currentUser.uid),{displayName:name,email:currentUser.email,updatedAt:serverTimestamp()},{merge:true});populateProfile(currentUser,{displayName:name});message("profile-message","Profile updated.");}
+      catch(err){message("profile-message",err.message,true);}
+    });
+    async function sendReset(email) {
+      try{await sendPasswordResetEmail(auth,email);toast("Password reset email sent.");}
+      catch(err){toast(authError(err),true);}
+    }
+    $("profile-reset").addEventListener("click",()=>sendReset(currentUser.email));
+    $("logout-button").addEventListener("click",async()=>{if(unsubscribeReports){unsubscribeReports();unsubscribeReports=null;}await signOut(auth);});
+
+    async function migrateLegacyReports(user) {
+      const legacy = await getDocs(collection(db,"users",user.uid,"reports"));
+      const profileSnap = await getDoc(doc(db,"users",user.uid));
+      const profile = profileSnap.exists() ? profileSnap.data() : {};
+      const authorName = profile.displayName || user.displayName || "Community member";
+      for (const oldDoc of legacy.docs) {
+        const targetId = `legacy_${user.uid}_${oldDoc.id}`;
+        const targetRef = doc(db,"reports",targetId);
+        const existing = await getDoc(targetRef);
+        if (existing.exists()) continue;
+        const data = oldDoc.data();
+        await setDoc(targetRef,{...data,createdBy:user.uid,createdByName:authorName,legacyImported:true});
+      }
+    }
+
+    function enterApp(user) {
+      currentUser=user;
+      reports=[];
+      $("auth-screen").classList.add("hidden-view");
+      $("app-screen").classList.remove("hidden-view");
+      // Render immediately from the Auth user; Firestore profile lookup is optional.
+      populateProfile(user,{});
+      getDoc(doc(db,"users",user.uid)).then(snap=>{
+        if(snap.exists() && currentUser?.uid===user.uid) populateProfile(user,snap.data());
+      }).catch(err=>console.warn("Profile read:",err));
+      if(unsubscribeReports) unsubscribeReports();
+      // One top-level collection is shared by every signed-in user.
+      const q=query(collection(db,"reports"),orderBy("createdAt","desc"));
+      unsubscribeReports=onSnapshot(q,snap=>{
+        if(currentUser?.uid!==user.uid) return;
+        reports=snap.docs.map(d=>({id:d.id,...d.data()}));
+        updateMetrics();updateMaps();renderReports();
+      },err=>{
+        console.error("Shared reports listener:",err);
+        toast(err.code==="permission-denied"?"Firestore denied access. Publish the updated firestore.rules.":"Could not load community reports. Check your internet connection.",true);
+      });
+      // One-time, safe migration of this user's older private reports into the shared collection.
+      // Deterministic IDs prevent duplicates if the user signs in again.
+      migrateLegacyReports(user).catch(err=>console.warn("Legacy report migration:",err));
+      setTimeout(()=>{
+        try { if(!mapOverview) initMap(); else {mapOverview.invalidateSize();mapFull.invalidateSize();} }
+        catch(err){ console.warn("Map unavailable:",err); $("map-notice").textContent="The map library could not load. Your reports and coordinates are still available."; }
+      },250);
+    }
+    onAuthStateChanged(auth,user=>{
+      if(user){ enterApp(user); }
+      else{
+        currentUser=null;reports=[];
+        if(unsubscribeReports){unsubscribeReports();unsubscribeReports=null;}
+        $("app-screen").classList.add("hidden-view");
+        $("auth-screen").classList.remove("hidden-view");
+      }
+    },err=>{
+      console.error("Authentication state error:",err);
+      message("auth-message",authError(err),true);
+    });
+  </script>
+</body>
+</html>
