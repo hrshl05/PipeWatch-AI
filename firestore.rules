@@ -1,0 +1,32 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Profiles remain private to their owners.
+    match /users/{userId} {
+      allow read, create, update: if request.auth != null
+        && request.auth.uid == userId;
+
+      // Backward compatibility: each user can read their old private reports
+      // so the app can migrate them into the shared reports collection.
+      match /reports/{reportId} {
+        allow read, create, update, delete: if request.auth != null
+          && request.auth.uid == userId;
+      }
+    }
+
+    // Shared community reports: every authenticated user can view all reports
+    // and submit a new one. Only the report's author can delete it.
+    match /reports/{reportId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.title is string
+        && request.resource.data.lat is number
+        && request.resource.data.lng is number
+        && request.resource.data.pothole in ['yes', 'no'];
+      allow update: if false;
+      allow delete: if request.auth != null
+        && resource.data.createdBy == request.auth.uid;
+    }
+  }
+}
