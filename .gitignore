@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+serviceAccount*.json
+*-service-account*.json
+
+# Logs and local tooling
+*.log
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Build output
+dist/
+build/
